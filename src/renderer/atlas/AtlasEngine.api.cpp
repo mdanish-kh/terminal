@@ -455,60 +455,7 @@ void AtlasEngine::SetWarningCallback(std::function<void(HRESULT)> pfn) noexcept
 
 [[nodiscard]] HRESULT AtlasEngine::UpdateFont(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes) noexcept
 {
-    static constexpr std::array fallbackFaceNames{ static_cast<const wchar_t*>(nullptr), L"Consolas", L"Lucida Console", L"Courier New" };
-    auto it = fallbackFaceNames.begin();
-    const auto end = fallbackFaceNames.end();
 
-    for (;;)
-    {
-        try
-        {
-            _updateFont(*it, fontInfoDesired, fontInfo, features, axes);
-            return S_OK;
-        }
-        catch (...)
-        {
-            ++it;
-            if (it == end)
-            {
-                RETURN_CAUGHT_EXCEPTION();
-            }
-            else
-            {
-                LOG_CAUGHT_EXCEPTION();
-            }
-        }
-    }
-}
-
-void AtlasEngine::UpdateHyperlinkHoveredId(const uint16_t hoveredId) noexcept
-{
-    _api.hyperlinkHoveredId = hoveredId;
-}
-
-#pragma endregion
-
-void AtlasEngine::_resolveTransparencySettings() noexcept
-{
-    // If the user asks for ClearType, but also for a transparent background
-    // (which our ClearType shader doesn't simultaneously support)
-    // then we need to sneakily force the renderer to grayscale AA.
-    const auto antialiasingMode = _api.enableTransparentBackground && _api.antialiasingMode == AntialiasingMode::ClearType ? AntialiasingMode::Grayscale : _api.antialiasingMode;
-    const bool enableTransparentBackground = _api.enableTransparentBackground || !_api.s->misc->customPixelShaderPath.empty() || _api.s->misc->useRetroTerminalEffect;
-
-    if (antialiasingMode != _api.s->font->antialiasingMode || enableTransparentBackground != _api.s->target->enableTransparentBackground)
-    {
-        const auto s = _api.s.write();
-        s->font.write()->antialiasingMode = antialiasingMode;
-        // An opaque background allows us to use true "independent" flips. See AtlasEngine::_createSwapChain().
-        // We can't enable them if custom shaders are specified, because it's unknown, whether they support opaque inputs.
-        s->target.write()->enableTransparentBackground = enableTransparentBackground;
-        _api.backgroundOpaqueMixin = enableTransparentBackground ? 0x00000000 : 0xff000000;
-    }
-}
-
-void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes)
-{
     std::vector<DWRITE_FONT_FEATURE> fontFeatures;
     if (!features.empty())
     {
@@ -583,10 +530,61 @@ void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fo
         }
     }
 
+    static constexpr std::array fallbackFaceNames{ static_cast<const wchar_t*>(nullptr), L"Consolas", L"Lucida Console", L"Courier New" };
+    auto it = fallbackFaceNames.begin();
+    const auto end = fallbackFaceNames.end();
     const auto font = _api.s.write()->font.write();
-    _resolveFontMetrics(faceName, fontInfoDesired, fontInfo, font);
+
+    for (;;)
+    {
+        try
+        {
+            _resolveFontMetrics(faceName, fontInfoDesired, fontInfo, font);
+            break;
+        }
+        catch (...)
+        {
+            ++it;
+            if (it == end)
+            {
+                RETURN_CAUGHT_EXCEPTION();
+            }
+            else
+            {
+                LOG_CAUGHT_EXCEPTION();
+            }
+        }
+    }
+
     font->fontFeatures = std::move(fontFeatures);
     font->fontAxisValues = std::move(fontAxisValues);
+    return S_OK;
+}
+
+void AtlasEngine::UpdateHyperlinkHoveredId(const uint16_t hoveredId) noexcept
+{
+    _api.hyperlinkHoveredId = hoveredId;
+}
+
+#pragma endregion
+
+void AtlasEngine::_resolveTransparencySettings() noexcept
+{
+    // If the user asks for ClearType, but also for a transparent background
+    // (which our ClearType shader doesn't simultaneously support)
+    // then we need to sneakily force the renderer to grayscale AA.
+    const auto antialiasingMode = _api.enableTransparentBackground && _api.antialiasingMode == AntialiasingMode::ClearType ? AntialiasingMode::Grayscale : _api.antialiasingMode;
+    const bool enableTransparentBackground = _api.enableTransparentBackground || !_api.s->misc->customPixelShaderPath.empty() || _api.s->misc->useRetroTerminalEffect;
+
+    if (antialiasingMode != _api.s->font->antialiasingMode || enableTransparentBackground != _api.s->target->enableTransparentBackground)
+    {
+        const auto s = _api.s.write();
+        s->font.write()->antialiasingMode = antialiasingMode;
+        // An opaque background allows us to use true "independent" flips. See AtlasEngine::_createSwapChain().
+        // We can't enable them if custom shaders are specified, because it's unknown, whether they support opaque inputs.
+        s->target.write()->enableTransparentBackground = enableTransparentBackground;
+        _api.backgroundOpaqueMixin = enableTransparentBackground ? 0x00000000 : 0xff000000;
+    }
 }
 
 void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, FontSettings* fontMetrics) const
@@ -620,16 +618,6 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
     u32 index = 0;
     BOOL exists = false;
     THROW_IF_FAILED(fontCollection->FindFamilyName(requestedFaceName, &index, &exists));
-
-    if constexpr (Feature_NearbyFontLoading::IsEnabled())
-    {
-        if (!exists)
-        {
-            fontCollection = FontCache::GetCached();
-            THROW_IF_FAILED(fontCollection->FindFamilyName(requestedFaceName, &index, &exists));
-        }
-    }
-
     THROW_HR_IF(DWRITE_E_NOFONT, !exists);
 
     wil::com_ptr<IDWriteFontFamily> fontFamily;
