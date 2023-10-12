@@ -72,9 +72,6 @@ package:
 winget install --id Microsoft.WindowsTerminal -e
 ```
 
-> **Note**\
-> Due to [a dependency issue](https://github.com/microsoft/terminal/issues/15663), Terminal's current versions cannot be installed via the Windows Package Manager CLI. To install the stable release 1.17 or later, or the Preview release 1.18 or later, please use an alternative installation method.
-
 #### Via Chocolatey (unofficial)
 
 [Chocolatey](https://chocolatey.org) users can download and install the latest
